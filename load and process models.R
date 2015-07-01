@@ -1,40 +1,3 @@
-multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
-  require(grid)
-
-  # Make a list from the ... arguments and plotlist
-  plots <- c(list(...), plotlist)
-
-  numPlots = length(plots)
-
-  # If layout is NULL, then use 'cols' to determine layout
-  if (is.null(layout)) {
-    # Make the panel
-    # ncol: Number of columns of plots
-    # nrow: Number of rows needed, calculated from # of cols
-    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)), ncol = cols, nrow = ceiling(numPlots/cols))
-  }
-
- if (numPlots==1) {
-    print(plots[[1]])
-
-  } else {
-    # Set up the page
-    grid.newpage()
-    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
-
-    # Make each plot, in the correct location
-    for (i in 1:numPlots) {
-      # Get the i,j matrix positions of the regions that contain this subplot
-      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
-
-      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row, layout.pos.col = matchidx$col))
-    }
-  }
-}
-
-
-
-
 readModel <- function(x) {eval(parse(text=paste('load("',x,'_model.RData",.GlobalEnv)',sep="")))}
 loadModels <- function(x) {if (file.exists(paste(x,"_model.RData",sep=""))) readModel(x) else model <- list()}
 models <- list()
@@ -104,13 +67,13 @@ for (i in 2:100) {
 # performance using training AUC as selection criteria
 xfold_aucs <- matrix(nrow=17728,ncol=length(folds_g1))
 for (i in 1:17728) xfold_aucs[i,] <- models[[i]]$auc_training
-top20 <- apply(-xfold_aucs,2,order)
-top20 <- top10[1:20,]
+top <- apply(-xfold_aucs,2,order)
+top <- top[1:20,]
 xfold_scores <- matrix(nrow=length(models[[1]]$scores), ncol=20)
 for (i in 1:20) {
 	scores_temp <- vector(length=length(models[[1]]$scores), mode="numeric")
 	for (fold in 1:length(folds_g1)) {
-		scores_temp[c(folds_g1[[fold]], folds_g2[[fold]])] <- models[[top20[i,fold]]]$scores[c(folds_g1[[fold]], folds_g2[[fold]])]
+		scores_temp[c(folds_g1[[fold]], folds_g2[[fold]])] <- models[[top[i,fold]]]$scores[c(folds_g1[[fold]], folds_g2[[fold]])]
 	}
 	xfold_scores[,i] <- scores_temp
 }
@@ -124,14 +87,9 @@ for (i in 2:20) {
 	aucs_running_combinations[i] <- auc(predictor=apply(xfold_scores[,1:i],1,sum),response=c(rep("G1",length(unlist(folds_g1))),rep("G2",length(unlist(folds_g2)))))
 }
 
-top20 <- apply(-xfold_aucs,2,order)
-top20 <- top20[1:20,]
-top20_names <- as.data.frame(top20)
-for (i in 1:14) top20_names[,i] <- workingList_BRCA[top20[,i]]
-
 top <- apply(-xfold_aucs,2,order)
 top_names <- as.data.frame(top)
-for (i in 1:14) top_names[,i] <- workingList_BRCA[top[,i]]
+for (i in 1:ncol(top_names)) top_names[,i] <- workingList_BRCA[top[,i]]
 
 # plotting
 library(ggplot2)
@@ -139,7 +97,12 @@ cb_palette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2"
 
 plotter <- data.frame(score=xfold_scores[,1], sampleType=c(rep("AN's",length(unlist(folds_g1))),rep("T's",length(unlist(folds_g2)))), top=rep("top-1 single, AUC=0.9827",812))
 plotter <- rbind(plotter, data.frame(score=apply(xfold_scores[,1:2],1,sum), sampleType=c(rep("AN's",length(unlist(folds_g1))),rep("T's",length(unlist(folds_g2)))), top=rep("top-2 combined, AUC=0.9903",812)))
-plotter <- rbind(plotter, data.frame(score=apply(xfold_scores[,1:3],1,sum), sampleType=c(rep("AN's",length(unlist(folds_g1))),rep("T's",length(unlist(folds_g2)))), top=rep("top-3 combines, AUC=0.9938",812)))
+plotter <- rbind(plotter, data.frame(score=apply(xfold_scores[,1:3],1,sum), sampleType=c(rep("AN's",length(unlist(folds_g1))),rep("T's",length(unlist(folds_g2)))), top=rep("top-3 combined, AUC=0.9938",812)))
 pdf(file="top-3 models combined.pdf",width=11.7,height=4)
-ggplot(plotter, aes(x=score, colour=sampleType)) + geom_density() + geom_rug(alpha=0.15) + facet_wrap(~top, scales="free_y") + theme_bw() + scale_colour_manual(values=cb_palette)
+ggplot(plotter, aes(x=score, colour=sampleType)) + geom_density() + geom_rug(alpha=0.15) + facet_wrap(~top, scales="free_y") + theme_bw() + scale_colour_manual(values=cb_palette) + theme(legend.position="bottom")
 dev.off()
+
+plotter <- rbind(plotter, data.frame(score=apply(xfold_scores[,1:4],1,sum), sampleType=c(rep("AN's",length(unlist(folds_g1))),rep("T's",length(unlist(folds_g2)))), top=rep("top-4 combined, AUC=0.9943",812)))
+plotter <- rbind(plotter, data.frame(score=apply(xfold_scores[,1:5],1,sum), sampleType=c(rep("AN's",length(unlist(folds_g1))),rep("T's",length(unlist(folds_g2)))), top=rep("top-5 combined, AUC=0.9914",812)))
+plotter <- rbind(plotter, data.frame(score=apply(xfold_scores[,1:6],1,sum), sampleType=c(rep("AN's",length(unlist(folds_g1))),rep("T's",length(unlist(folds_g2)))), top=rep("top-6 combined, AUC=0.9923",812)))
+ggplot(plotter, aes(x=score, colour=sampleType)) + geom_density() + geom_rug(alpha=0.15) + facet_wrap(~top, scales="free_y") + theme_bw() + scale_colour_manual(values=cb_palette) + theme(legend.position="bottom")

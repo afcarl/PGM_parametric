@@ -10,11 +10,8 @@ if (length(folds_g1) != length(folds_g2)) stop("Uneven number of x-folds")
 #################################################
 # configure the model a bit
 #################################################
-nbins_e <- 1000 # number of discrete bins to divide expression data into
+nbins_e <- 100 # number of discrete bins to divide expression data into
 nbins_meth <- 100 # number of discrete bins to divide methylation data types (promoter and gene body meth.) into
-nfolds <- length(folds_g1)
-length_g1 <- length(unlist(folds_g1))
-length_g2 <- length(unlist(folds_g2))
 #################################################
 # libs and common functions
 #################################################
@@ -23,14 +20,16 @@ library(dplyr)
 library(VGAM)
 library(bbmle)
 library(pROC) # calculates AUC
-loglik <- function(alpha, beta){-sum(dbetabinom.ab(xi, ni, alpha, beta, log = T))}
-#################################################
-# iterate over selected consecutive gene IDs
-#################################################
-for (i in beg:end) {
-	cat(paste("doing ",i,"\n",sep=""))
-	ptm <- proc.time()[3]
-	
+
+failModel <- function(i, ptm) {
+	cat(paste("\nFailed evaluating for ",i," after ", sprintf("%.2f", (proc.time()[3]-ptm)/60)," minutes\n",sep=""))
+}
+
+runModel <- function(i, ptm, nbins_e, nbins_meth) {
+	loglik <- function(alpha, beta){-sum(dbetabinom.ab(xi, ni, alpha, beta, log = T))}
+	nfolds <- length(folds_g1)
+	length_g1 <- length(unlist(folds_g1))
+	length_g2 <- length(unlist(folds_g2))
 	model <- list()
 	scores_xval <- vector(length=nrow(data_BRCA_progressing[[i]]))
 	
@@ -100,7 +99,9 @@ for (i in beg:end) {
 	dfg_prior_base <- dfg(varDimPrior, facPotPrior, facNbsPrior, potMapPrior, varNames = names(df))
 	
 	# begin x-fold here
+	cat("Beginning cross-fold procedure. Doing fold: ")
 	for (fold in 1:nfolds) { # iterate through nfolds folds
+		cat(paste(" ",fold,sep=""))
 		# identify training and validation sets, assumes g1 and g2 sets are adjacent
 		g1_xfold_training <- setdiff((1:length_g1),unlist(folds_g1[[fold]]))
 		g2_xfold_training <- setdiff(length_g1+(1:length_g2),unlist(folds_g2[[fold]]))
@@ -131,11 +132,12 @@ for (i in beg:end) {
 						dfg = dfg_g1,
 						optim = c("linreg1", "linreg2", "fixedLink1", "fixedLink2"),
 						optimFun = optimFun, iter.max = 5000, threshold = 1e-5) 
-			else if (type=="trainBase") dfg_g1 <- train(data = df_wo_expr[g1_xfold_training,],
+			else if (type=="trainBase") tryCatch(dfg_g1 <- train(data = df_wo_expr[g1_xfold_training,],
 						dataList = dataList,
 						dfg = dfg_base,
 						optim = c("linreg1", "linreg2", "fixedLink1", "fixedLink2"),
-						optimFun = optimFun, iter.max = 5000, threshold = 1e-5)
+						optimFun = optimFun, iter.max = 5000, threshold = 1e-5),
+						finally = stop("Could not train base model for G1"))
 		}
 		tryCatch(train_g1("retrain"), finally = train_g1("trainBase"))
 		# Model with beta prior
@@ -168,11 +170,12 @@ for (i in beg:end) {
 						dfg = dfg_g2,
 						optim = c("linreg1", "linreg2", "fixedLink1", "fixedLink2"),
 						optimFun = optimFun, iter.max = 5000, threshold = 1e-5) 
-			else if (type=="trainBase") dfg_g2 <- train(data = df_wo_expr[g2_xfold_training,],
+			else if (type=="trainBase") tryCatch(dfg_g2 <- train(data = df_wo_expr[g2_xfold_training,],
 						dataList = dataList,
 						dfg = dfg_base,
 						optim = c("linreg1", "linreg2", "fixedLink1", "fixedLink2"),
-						optimFun = optimFun, iter.max = 5000, threshold = 1e-5)
+						optimFun = optimFun, iter.max = 5000, threshold = 1e-5),
+						finally = stop("Could not train base model for G2"))
 		}
 		tryCatch(train_g2("retrain"), finally = train_g2("trainBase"))
 		# Model with beta prior
@@ -210,5 +213,15 @@ for (i in beg:end) {
 	model$scores <- scores_xval
 	# save model results
 	eval(parse(text=paste('save(model, file="./',i,'_model.RData")',sep="")))
-	cat(paste("done evaluating for ",i," in ", sprintf("%.2f", (proc.time()[3]-ptm)/60)," minutes\n",sep=""))
+	cat(paste("\ndone evaluating for ",i," in ", sprintf("%.2f", (proc.time()[3]-ptm)/60)," minutes\n",sep=""))
 }
+
+#################################################
+# iterate over selected consecutive gene IDs
+#################################################
+for (i in beg:end) {
+	ptm <- proc.time()[3]
+	cat(paste("doing ",i,"\n",sep=""))
+	tryCatch(runModel(i, ptm, nbins_e=100, nbins_meth=100), finally=failModel(i, ptm))
+}
+
